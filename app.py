@@ -124,26 +124,30 @@ def whatsapp_reply():
     resp = MessagingResponse()
     msg = resp.message()
 
+    expenses = load_expenses()
+
     if incoming_msg.lower() in ["bonjour", "hello", "hi"]:
         reply = "Bonjour ! Vous pouvez :\n" \
                 "- Envoyer une dépense : 'Dépense: [Description] - [Montant] - [Catégorie]' ou\n" \
                 "                         'Dépense: [Description] - [Montant] - [Catégorie] - [Date]'\n" \
                 "- Voir vos dépenses : 'Liste'\n" \
                 "- Voir le total : 'Total'\n" \
-                "- Générer un rapport : 'Rapport mois avril', 'Rapport semaine', 'Rapport date 2025-04-01 à 2025-04-30'"
+                "- Générer un rapport : 'Rapport mois avril', 'Rapport semaine', 'Rapport date 2025-04-01 à 2025-04-30'\n" \
+                "- Supprimer une dépense : 'Supprimer [numéro]'\n" \
+                "- Modifier une dépense : 'Modifier [numéro] - [montant] - [catégorie]'\n" \
+                "- Annuler la dernière dépense : 'Annuler'"
 
     elif incoming_msg.lower() == "liste":
-        expenses = load_expenses()
         if not expenses:
             reply = "Aucune dépense enregistrée pour le moment."
         else:
-            reply = "Voici vos dernières dépenses :\n"
-            for e in expenses[-5:]:
+            reply = "Voici vos dernières dépenses (du plus récent au plus ancien) :\n"
+            for idx, e in enumerate(expenses[-5:], start=1):
                 date_fr = datetime.fromisoformat(e['date'][:10]).strftime('%d/%m/%Y')
-                reply += f"{date_fr} - {e['description']} - {int(e['amount'])} FCFA ({e['category']})\n"
+                reply += f"{idx}. {date_fr} - {e['description']} - {int(e['amount'])} FCFA ({e['category']})\n"
 
     elif incoming_msg.lower() == "total":
-        total = sum(e['amount'] for e in load_expenses())
+        total = sum(e['amount'] for e in expenses)
         reply = f"Le montant total des dépenses est de **{int(total)} FCFA**."
 
     elif incoming_msg.lower().startswith("dépense:"):
@@ -158,6 +162,49 @@ def whatsapp_reply():
                 reply = f"Dépense enregistrée avec succès !\n{desc} - {int(added['amount'])} FCFA ({cat})\n📅 Date : {date_str}"
             else:
                 reply = "Erreur lors de l'enregistrement de la dépense."
+
+    elif incoming_msg.lower() == "annuler":
+        if not expenses:
+            reply = "Aucune dépense à annuler."
+        else:
+            last_expense = expenses.pop()
+            save_expenses(expenses)
+            date_fr = datetime.fromisoformat(last_expense["date"][:10]).strftime("%d/%m/%Y")
+            reply = f"Dépense supprimée (dernière saisie) :\n{date_fr} - {last_expense['description']} - {int(last_expense['amount'])} FCFA ({last_expense['category']})"
+
+    elif incoming_msg.lower().startswith("supprimer"):
+        try:
+            index = int(incoming_msg[8:].strip()) - 1
+            if 0 <= index < len(expenses):
+                deleted = expenses.pop(index)
+                save_expenses(expenses)
+                date_fr = datetime.fromisoformat(deleted["date"][:10]).strftime("%d/%m/%Y")
+                reply = f"Dépense supprimée :\n{date_fr} - {deleted['description']} - {int(deleted['amount'])} FCFA ({deleted['category']})"
+            else:
+                reply = "Numéro de dépense invalide."
+        except:
+            reply = "Format incorrect. Utilisez : 'Supprimer [numéro]'"
+
+    elif incoming_msg.lower().startswith("modifier"):
+        try:
+            content = incoming_msg[7:].strip()
+            parts = [p.strip() for p in content.split("-")]
+            index = int(parts[0]) - 1
+            amount = parts[1] if len(parts) > 1 else None
+            category = parts[2] if len(parts) > 2 else None
+
+            if 0 <= index < len(expenses):
+                if amount:
+                    expenses[index]["amount"] = float(amount)
+                if category:
+                    expenses[index]["category"] = category
+                save_expenses(expenses)
+                date_fr = datetime.fromisoformat(expenses[index]['date'][:10]).strftime("%d/%m/%Y")
+                reply = f"Dépense mise à jour :\n{date_fr} - {expenses[index]['description']} - {int(expenses[index]['amount'])} FCFA ({expenses[index]['category']})"
+            else:
+                reply = "Numéro de dépense invalide."
+        except Exception as e:
+            reply = "Format incorrect. Utilisez : 'Modifier [numéro] - [montant] - [catégorie]'"
 
     elif incoming_msg.lower().startswith("rapport"):
         period = incoming_msg[7:].strip().lower()
@@ -177,7 +224,7 @@ def whatsapp_reply():
                     reply += f"{date_fr} - {e['description']} - {int(e['amount'])} FCFA ({e['category']})\n"
 
     else:
-        reply = "Commande non reconnue. Essayez 'Bonjour', 'Dépense:...', 'Liste', 'Total' ou 'Rapport...'."
+        reply = "Commande non reconnue. Essayez 'Bonjour', 'Dépense:...', 'Liste', 'Total', 'Supprimer [numéro]', 'Modifier [numéro] - [montant] - [catégorie]' ou 'Rapport...'."
 
     msg.body(reply)
     return str(resp)
